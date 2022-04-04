@@ -8,214 +8,203 @@ Created on Thu Feb 17 11:15:16 2022
 import pandas as pd
 import numpy as np
 import re
+from src import DATADIR, DATARAW, ROOTDIR
+import unicodedata
 
-file_name = 'data'
-DATADIR = r'C:/Users/crist/mentoring/comptes des communes/src/data'
+file = 'data.parquet'
+#DATADIR = r'C:/Users/crist/mentoring/comptes des communes/src/data'
 
-def open_data(file_name):
-    parquet_file = DATADIR + '/%s.parquet' % (file_name)
+def open_data(file):
+    parquet_file = DATADIR/file
     return pd.read_parquet(parquet_file, engine='auto')
 
-data = open_data(file_name)
+data = open_data(file)
+
+
 
 def miss(data):
+    
+    """
+    Eliminate the columns that have no information or have duplicated information
+    
+    """
     data = data.drop(['ordre_analyse1_section1','ordre_analyse1_section2','ordre_analyse1_section3','ordre_analyse2_section1','ordre_analyse2_section2',
 'ordre_analyse2_section3','ordre_analyse3_section1','ordre_analyse3_section2','ordre_analyse3_section3','ordre_analyse4_section1',
 'ordre_affichage', 'presence_budget'], axis = 1)
-    
+    data = data.replace('nan', np.nan)
     return data
 
 data = miss(data)
+missing = missing.replace('nan', np.nan)
 missing = data[data.isnull().any(axis=1)]
 no_missing = data[~data.isnull().any(axis=1)]
     
-def keeping_same_missing(missing):
-    """
-    
-    As we have some columns with same information but different format, we are going to keep both columns with the same 
-    number of missings.
-    
-    
-    """
-
-   
-    reg_no_null = missing[~missing['reg_code'].isnull()]
-    reg_code = reg_no_null['reg_code'].unique()
-    
-    d={}
-    for element in reg_code:
-        s = reg_no_null.loc[reg_no_null['reg_code'] == element,'reg_name']
-        all_none = all(v is None for v in s)
-        if all_none == True:
-            sol = None
-        else:
-            sol = next(item for item in s if item is not None)
-        d[element] = sol
-    
-    for i, row in missing.iterrows():
-        for element in d:
-            if row['reg_code'] == element:
-                missing.at[i,'reg_name'] = d[element]
-    
-    # dep_name and dep_code
-    dep_no_null = missing[~missing['dep_code'].isnull()]
-    dep_code = dep_no_null['dep_code'].unique()
-    
-    d={}
-    for element in dep_code:
-        s = dep_no_null.loc[dep_no_null['dep_code'] == element,'dep_name']
-        all_none = all(v is None for v in s) # search if all values in s are None
-        if all_none == True:
-            sol = None
-        else:
-            sol = next(item for item in s if item is not None)
-        d[element] = sol
-    
-    for i, row in missing.iterrows():
-        for element in d:
-            if row['dep_code'] == element:
-                missing.at[i,'dep_name'] = d[element]    
-    return missing
-
-missing = keeping_same_missing(missing)
-
 def extract_com_name(missing):
-
-    # Composed names
-    r1 = re.compile(r"([a-zA-Z0-9.-áè]+-[a-zA-Z'.-]+)")
     
-    # One unique name or several names (we keep the last one)
+    """
+    We extract the commune name from the lbudg field
     
-    r2 = re.compile(r"[^\W]+$")
+    """
     
-    for i, row in missing.iterrows():
-        missing.at[i,'com_name'] = r1.findall(missing.at[i,'lbudg'])
-    for i, row in missing.iterrows():
-        if not row['com_name']:
-            missing.at[i,'com_name'] = r2.findall(missing.at[i,'lbudg'])
+    r1 = re.compile(r"([a-zA-Z0-9.-áè]+-[a-zA-Z'.-]+)") # Composed names
+    r2 = re.compile(r"[a-zA-Z0-9_']+$") # One unique name or several names (we keep the last one)
     
-    for i, row in missing.iterrows():
-        if not row['com_name']:
-             missing.at[i,'com_name'] = row['lbudg']
-        
-    # We undo the list that is automatically done.
-           
-    for i, row in missing.iterrows():
-        missing.at[i,'com_name'] = "".join(row['com_name']) 
+    missing['com_name'] = np.where(missing['com_name'].isnull(), missing['lbudg'].apply(lambda x: "".join(r1.findall(x)).title()), missing['com_name'])
+    missing['com_name'] = np.where(missing['com_name']=='', missing['lbudg'].apply(lambda x: "".join(r2.findall(x)).title()), missing['com_name'])
+    missing['com_name'] = np.where(missing['com_name']=='', missing['lbudg'].apply(lambda x: "".join(re.findall('\((.*?)\)',x)).title())+missing['lbudg'].apply(lambda x: "".join(re.findall('([^ ]+) .*',x)).title()), missing['com_name']) #words = ['(Le )', '(La )', '(Les)']
     
-    # We have detected that in some cases there are some words "RESTAURANT", "EAU", "ASSAT" following for a dash that are in our row and we did not want it.
-    #So, we will remove it.
-    words = ["ASST-", "RESTAURANT-", "EAU-", "LOTS-", "FORETS-", "1-", "HBS-", "SPANC-", "LOT-"]
-    for i, row in missing.iterrows():
+    def clean(x):
+        words = ["Asst-", "Restaurant-", "Eau-", "Lots-", "Forets-", "1-", "Hbs-", "Spanc-", "Lot-", "Transat-"]
         for word in words:
-            if word in row['com_name']:
-                missing.at[i,'com_name'] = row['com_name'].replace(word, "")
-                
-    # Now, as in our dataframe "data" we have the column com_name in lowercase, we are going to transform it:
-    # For that the easiest way is to convert into lowercase and then make a title:
-    for i,row in missing.iterrows():
-        missing.at[i,'com_name'] = row['com_name'].lower()
-        missing.at[i,'com_name'] = row['com_name'].title()
+            if word in x:
+                x = x.replace(word, "")
+            else:
+                x = x
+        return x
+    
+    missing['com_name'] = missing['com_name'].apply(clean)
+    
+    def replace(x):
+        communes = {"Magny":"Le Magny",'Chapelle-De-Mardore': 'La-Chapelle-De-Mardore',"Bihorel": "Bois-Guillaume-Bihorel",
+                 "Dessous":"Saint-Offenge-Dessous", "Chedoue": "Fresnaye-Sur-Chedouet", "Infournas": "Les Infournas",
+                 "Louis": "Saint-Louis", "Commerciales": "Voultegon", 'Commerciale':"Unknown",'Photovoltaique': "Unknown", 'Reine': "Unknown"}
+        for com in communes:
+            if com in x:
+                x = communes[com]
+            else:
+                x = x
+        return x
+    
+    missing['com_name'] = missing['com_name'].apply(replace)
+    missing.to_parquet(DATADIR/'missing.parquet')
+
+#missing = extract_com_name(missing)
+missing = open_data('missing.parquet')
+
+ 
+def complete_code_name(missing):
+
+    """
+    There are some columns that have the same information one of them in code and the other in name.
+    This function will leave both columns with the same information, searching the missing in one of them and filling the other column
+    """
+ 
+    reg= pd.read_csv(DATARAW/'regions.csv', encoding='latin-1')
+    reg.columns = ['reg_name', 'Population 2019', 'Population estimée 2022', 'code']
+    
+    dep = pd.read_csv(DATARAW/'departements.csv', encoding='latin-1')
+    dep.columns = ['Code', 'Dep']
+    
+    corr= pd.read_csv(DATARAW/'correspondance.csv', sep = ";", encoding='latin-1')
+    corr.columns = ['insee', 'CP', 'com_name', 'dep_name', 'reg_name',
+           'statut', 'Altitude_Moyenne', 'Superficie', 'Population',
+           'geo_point_2d', 'geo_shape', 'ID_Geofla', 'com_code', 'Code_Canton',
+           'Code_Arrondissement', 'dep_code', 'reg_code']
+    
+    d_dep = dep.set_index('Code').to_dict()['Dep']
+    d_reg = reg.set_index('code').to_dict()['reg_name']
         
-    # we have identified at the end of some words the articles that is necesary to eliminate ['(Le )', '(La )', '(Les)']
-
-    for i, row in missing.iterrows():
-        if '(Le )' in row['com_name']:
-            row['com_name'] = row['com_name'].replace(' (Le )', "")
-            missing.at[i,'com_name'] = "Le" + " " +  row['com_name']
-        if '(La )' in row['com_name']:
-            row['com_name'] = row['com_name'].replace(' (La )', "")
-            missing.at[i,'com_name'] = "La" + " " +  row['com_name']
-        if '(Les)' in row['com_name']:
-            row['com_name'] = row['com_name'].replace(' (Les)', "")
-            missing.at[i,'com_name'] = "Les" + " " +  row['com_name']
+    missing['reg_name']= np.where(missing['reg_code'].notnull(),missing['reg_code'].apply(lambda x: d_reg[x] if pd.notnull(x) else x), missing['reg_name'])
+    missing['dep_name']= np.where(missing['dep_code'].notnull(),missing['dep_code'].apply(lambda x: d_dep[x] if pd.notnull(x) else x), missing['dep_name'])
+    #epci_code/epci_name
     
-    # At this point we can look for the unique names to compare and change manually some names if it is necessary
+    df = data.groupby("epci_code").first().reset_index()
+    d_data = df.set_index('epci_code').to_dict()['epci_name']
     
-    for i, row in missing.iterrows():
-        if "Magny" in row['com_name']:
-            missing.at[i,'com_name'] = "Le Magny"
-        if 'Chapelle-De-Mardore' in row['com_name']:
-            missing.at[i,'com_name'] = 'La-Chapelle-De-Mardore'
-        if "Bihorel" in row['com_name']:
-            missing.at[i,'com_name'] = "Bois-Guillaume-Bihorel"
-        if "Dessous" in row['com_name']:
-            missing.at[i,'com_name'] = "Saint-Offenge-Dessous"
-        if "Chedoue" in row['com_name']:
-            missing.at[i,'com_name'] = "Fresnaye-Sur-Chedouet"
-        if row['com_name'] == "L'Ile" or row['com_name'] == "Ile" or "Yeu" in row['com_name']:
-            missing.at[i,'com_name'] = "L'Ile de Yeu"
-    
-    return missing
+    for element in d_data:
+        missing['epci_name']=np.where(missing['epci_code'] == element,d_data[element], missing['epci_name'])
 
-missing = extract_com_name(missing)
+    missing.to_parquet(DATADIR/'missing.parquet')
 
-def common_siren(missing):
+missing = complete(missing)
+
+# Todos los ficheros en el mismo formato:
+
+def strip_accents(s):
+    if s != None:
+        s = ''.join(c for c in unicodedata.normalize('NFD', s) 
+                   if unicodedata.category(c) != 'Mn')
+    else:
+        s = None
+    return s
+
+
+def string_format(df):
     
     """
-    We seek with this fonction if some of the siren in our dataframe missings is in the dataframe no missings, so
-    we can extract all the information concerned by this siren.
+    We change the strings columns format to leave it exactly in all the dataframes, in order to be able to cross it searching by a commune name.
+    """
+    columns = ['com_name', 'reg_name', 'dep_name']
+    name =[x for x in globals() if globals()[x] is df][0] + "." + "parquet"
+    for column in columns:
+        df[column] = df[column].apply(strip_accents)
+        df[column] = df[column].apply(lambda x: x.title() if x!= None else None)
+        df.to_parquet(DATADIR/name)
+
+f = ['missing', 'no_missing', 'corr']
+for element in f:
+    string_format(globals()[element]) 
+
+missing = open_data('missing.parquet')
+no_missing = open_data('no_missing.parquet')
+corr = open_data('corr.parquet')
+
+def imp_comparation(df):
     
     """
-    data_siren = no_missing['siren'].unique()
-    missing_siren = missing['siren'].unique()
-    common_siren = []
-    for element in missing_siren:
-        if element in data_siren:
-            common_siren.append(element)
+    We will search the homonyms in the corr dataframe and imput the missings from the corr dataframe and from no_missing dataframe.
+    Firstly, we will exclude the homonyms and then the imputation will be by com_name.
+
+    """        
+    missing['ptot'] = np.where(missing['ptot'] == 0, 1, missing['ptot'])
+    missing['euros_par_habitant'] = np.where(missing['ptot'] == 0, missing['montant']/1, missing['euros_par_habitant'])
+    missing['insee'] = np.where(missing['insee'].isnull(), missing['insee']*(-1), missing['insee'])
+    missing.to_parquet('missing.parquet')
     
-    d={}
-    if common_siren:
-        for siren in common_siren:
-            miss = missing.loc[missing['siren']==siren].isnull().sum(axis = 0)
-            l = []
-            for element in miss.index:
-                if miss[element] != 0:
-                    l.append(element)
-                d[siren] = [e for e in l]
+    # Saco los homónimos:
+    corr['duplicated']=corr.sort_values('com_name').duplicated(subset=['com_name'])
+    corr['hom'] = np.where(corr['duplicated']==True, corr['com_name'], 0)
+    hom = set([x for x in corr['hom'] if x !=0])
+    hom_in_missing=[element for element in missing['com_name'].unique() if element in hom]
     
-    d2={}
-    exer = data['exer'].unique()
-    for siren in common_siren:
-        d2[siren] = {}
-        for element in d[siren]:
-            if element == 'ptot':
-                d2[siren]['ptot']={}
-                for e in exer:
-                    d2[siren]['ptot'][e] = {}
-                    pr = no_missing.loc[(no_missing['siren']==siren)&(no_missing['exer']==e)]['ptot'] 
-                    all_none = all(v is None for v in pr) # search if all values in s are None
-                    if all_none == True:
-                        d2[siren]['ptot'][e] = None
-                    else:
-                        d2[siren]['ptot'][e] =pr[pr.index[0]]  
-                    
-            else:
-                pr = no_missing.loc[no_missing['siren']==siren][element]
-                d2[siren][element] = pr[pr.index[0]]
-                
-    exer = missing.exer.unique()
-    for siren in common_siren:
-        for element in d[siren]:
-            if element != 'ptot':
-                for i, row in missing.iterrows():
-                    if row['siren'] == siren:
-                        missing.at[i,element] = d2[siren][element]
-            else:
-                for e in exer:
-                    for i, row in missing.iterrows():
-                        if (row['siren'] == siren) & (row['exer'] == e):
-                            missing.at[i, element] = d2[siren][element][e]
+    columns = ['reg_name', 'dep_name', 'reg_code', 'dep_code', 'com_code']
+    for column in columns:
+        globals()['d' + "_" + column] = corr.set_index('com_name').to_dict()[column]
+        for element in globals()['d' + "_" + column].copy():
+            if element in hom_in_missing:
+                del globals()['d' + "_" + column][element]
+        missing[column] = np.where(missing[column].isnull(), missing['com_name'].apply(lambda x: globals()['d' + "_" + column][x] if x in globals()['d' + "_" + column] else np.nan), missing[column])
     
-    missing['euros_par_habitant'] = missing['montant']/missing['ptot']
+    years = missing[missing['ptot'].isnull()]['exer'].unique()       
+    imp = no_missing.groupby(['exer','com_name']).first().reset_index()
     
-    no_missing2 = missing[~missing.isnull().any(axis=1)]
-    no_missing = pd.concat([no_missing, no_missing2], axis = 0)
-    missing = missing[missing.isnull().any(axis=1)]
-    no_missing.to_parquet('df.parquet')
-    #missing = missing.to_parquet('missing.parquet')
+    columns = ['ptot','epci_code','epci_name','tranche_population', 'rural', 'montagne', 'touristique', 'tranche_revenu_imposable_par_habitant','qpv', 'outre_mer']
+    for year in years:
+        for column in columns:
+            globals()['d' + '_' + column +  str(year)] = imp[imp['exer']==year].set_index('com_name').to_dict()[column]
+            missing[column] = np.where(missing[column].isnull(), missing['com_name'].apply(lambda x:globals()['d' + '_' + column + str(year)][x] if x in globals()['d' + '_' + column + str(year)] else np.nan ), missing[column])
     
+    imp_siren = no_missing.groupby(['exer','siren']).first().reset_index()
     
-   
-file_name = 'df'
-df = open_data(file_name)
+    for year in years:
+        for column in columns:
+            globals()['d' + '_' + column +  str(year)] = imp_siren[imp_siren['exer']==year].set_index('siren').to_dict()[column]
+            missing[column] = np.where(missing[column].isnull(), missing['siren'].apply(lambda x:globals()['d' + '_' + column + str(year)][x] if x in globals()['d' + '_' + column + str(year)] else np.nan ), missing[column])
+    
+    missing['euros_par_habitant'] = np.where(missing['ptot'].notnull(), missing['montant']/missing['ptot'], missing['euros_par_habitant'])        
+    df.to_parquet(DATADIR/'missing.parquet')
+
+
+
+
+
+
+#if __name__ == "__main__":
+#    open_data(file)
+
+
+
+
+
+
+# 

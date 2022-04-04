@@ -8,11 +8,18 @@ Created on Thu Feb 17 10:24:08 2022
 
 import pandas as pd
 import numpy as np
+#from .. import ROOTDIR, RAWDIR, PRODIR
+from src import DATADIR, DATARAW, ROOTDIR
+ 
+file = 'base_communes.csv'
 
-DATADIR = DATADIR = r'C:\Users\crist\mentoring\comptes des communes\src\data'
 def transf_data(file):
-    data = pd.read_csv(r'C:\Users\crist\mentoring\comptes des communes\data\raw\%s' % (file), sep=";", encoding="utf-8", low_memory=False)
+    data = pd.read_csv(DATARAW/file, sep=";", encoding="utf-8", low_memory=False, dtype={'insee':str})
     data['insee'] = data['insee'].astype('str') 
-    data.to_parquet('data.parquet')
+    data.to_parquet(DATADIR/'data.parquet')# meter dónde lo guardo
+    #print("Je n'ai pas crashe")
+#transf_data(file)
 
-transf_data('base_communes.csv')
+
+if __name__ == "__main__":
+    transf_data(file)
