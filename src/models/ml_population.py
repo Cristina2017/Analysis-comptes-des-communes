@@ -18,18 +18,18 @@ from sklearn.metrics import mean_squared_error # for calculating the cost functi
 from src import DATADIR, DATARAW, ROOTDIR
 from src.data import open_files as of
 from sklearn.preprocessing import OrdinalEncoder
-
-no_missing = of.open_parquet('no_missing.parquet')
-# eliminamos 4651 registros nulos
-no_missing=no_missing[no_missing['dense'].notnull()]
-
+import xgboost as xg
+from sklearn.metrics import mean_squared_error as MSE
 
 
 # cor = df.corr('spearman')
 # fig, ax = plt.subplots(figsize=(20,20))
 # sns.heatmap(cor, annot=True, ax=ax, cmap="coolwarm");
+
 def prep(no_missing):
-    dep = ["4","8", "12","16","18", "22", "28", "32",
+    no_missing = of.open_parquet('no_missing.parquet')
+    no_missing=no_missing[no_missing['dense'].notnull()] # 4651 null instances
+    dep = ["04","08", "12","16","18", "22", "28", "32",
            "36", "40", "44", "48", "52", "57",
            "61","65", "69", "73", "77", "81",
            "86", "90", "94"]
@@ -38,8 +38,7 @@ def prep(no_missing):
 #enc.fit(data['outre_mer', 'rural', 'montagne', 'qpv', 'categ', 'type_de_budget', 'nomen'])
 #data = enc.transform([['outre_mer', 'rural', 'montagne', 'qpv', 'categ', 'type_de_budget', 'nomen']])
 
-    target = df['ptot']
-    data = df.drop(['ptot','reg_name', 'dep_name', 'epci_name','com_name','agregat','lbudg', 'geo', 'longitud', 'latitud', 'montant'], axis =1)
+    data = df.drop(['reg_name', 'dep_name', 'epci_name','com_name','agregat','lbudg', 'geo', 'longitud', 'latitud', 'montant'], axis =1)
     data = data.replace(['Non', 'Oui'], value = [0,1])
     data['categ'] = data['categ'].replace(['Commune', 'PARIS'], value = [0,1])
     data['type_de_budget'] = data['type_de_budget'].replace(['Budget annexe', 'Budget principal'], value = [0,1])
@@ -48,12 +47,17 @@ def prep(no_missing):
        'M22', 'M157', 'M57'], value = [0,1,2,3,4,5,6,7,8,9,10,11])
 #data['nomen'] = data['nomen'].map(data['nomen'].value_counts(normalize=True))
     data.to_parquet(DATADIR/'data_population.parquet')
-
+    
+prep(no_missing)
 data = of.open_parquet('data_population.parquet')
 
 # Regresion lineal:
 
-def reg_lineal(data)
+def reg_lineal(data):
+    data = of.open_parquet('data_population.parquet')
+    target = data['ptot']
+    data = data.drop('ptot', axis = 1)
+
     X_train, X_test, y_train, y_test = train_test_split(data, target, test_size=0.177655, random_state=789)
 
     lr = LinearRegression()
@@ -67,6 +71,10 @@ reg_lineal(data)
 #Random forest
 
 def random_forest(data):
+    data = of.open_parquet('data_population.parquet')
+    target = data['ptot']
+    data = data.drop('ptot', axis = 1)
+    X_train, X_test, y_train, y_test = train_test_split(data, target, test_size=0.177655, random_state=789)
     model = RandomForestRegressor(n_estimators = 10, random_state = 0)
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
@@ -75,35 +83,64 @@ def random_forest(data):
     print("\nRMSE: ", rmse)
     print("Scatter_index: ", SI)
 
-random_forest(data)
-# Random forest tuning
 
-from sklearn.model_selection import RandomizedSearchCV
+    
+    
+# # Random forest tuning
 
-# Number of trees in random forest
-n_estimators = [int(x) for x in np.linspace(start = 200, stop = 500, num = 10)]
-# Number of features to consider at every split
-max_features = ['auto', 'sqrt']
-# Maximum number of levels in tree
-max_depth = [int(x) for x in np.linspace(10, 110, num = 11)]
-max_depth.append(None)
-# Minimum number of samples required to split a node
-min_samples_split = [2, 5, 10]
-# Minimum number of samples required at each leaf node
-min_samples_leaf = [1, 2, 4]
-# Method of selecting samples for training each tree
-bootstrap = [True, False]
-# Create the random grid
-random_grid = {'n_estimators': n_estimators,
-               'max_features': max_features,
-               'max_depth': max_depth,
-               'min_samples_split': min_samples_split,
-               'min_samples_leaf': min_samples_leaf,
-               'bootstrap': bootstrap}
+# from sklearn.model_selection import RandomizedSearchCV
 
-rf = RandomForestRegressor()
+# target = data['ptot']
+# data = data.drop('ptot', axis = 1)
+# X_train, X_test, y_train, y_test = train_test_split(data, target, test_size=0.177655, random_state=789)
 
-rf_random = RandomizedSearchCV(estimator = rf, param_distributions = random_grid, n_iter = 50, cv = 3, verbose=2, random_state=42, n_jobs = -1)
+# # Number of trees in random forest
+# n_estimators = [int(x) for x in np.linspace(start = 200, stop = 500, num = 10)]
+# # Number of features to consider at every split
+# max_features = ['auto', 'sqrt']
+# # Maximum number of levels in tree
+# max_depth = [int(x) for x in np.linspace(10, 110, num = 11)]
+# max_depth.append(None)
+# # Minimum number of samples required to split a node
+# min_samples_split = [2, 5, 10]
+# # Minimum number of samples required at each leaf node
+# min_samples_leaf = [1, 2, 4]
+# # Method of selecting samples for training each tree
+# bootstrap = [True, False]
+# # Create the random grid
+# random_grid = {'n_estimators': n_estimators,
+#                 'max_features': max_features,
+#                 'max_depth': max_depth,
+#                 'min_samples_split': min_samples_split,
+#                 'min_samples_leaf': min_samples_leaf,
+#                 'bootstrap': bootstrap}
 
-rf_random.fit(X_train, y_train)
+# rf = RandomForestRegressor()
 
+# rf_random = RandomizedSearchCV(estimator = rf, param_distributions = random_grid, n_iter = 50, cv = 3, verbose=2, random_state=42, n_jobs = -1)
+
+def xgboost(data):
+    data = of.open_parquet('data_population.parquet')
+    data[['dep_code', 'com_code', 'insee']] = data[['dep_code', 'com_code', 'insee']].apply(lambda x: x.astype('int'))
+    int_cols = list(data.select_dtypes("integer").columns)
+    encodings = [np.int8, np.int16, np.int32]
+    for c in int_cols:
+        m = np.abs(data[c]).max()
+        for e in encodings:
+            if m < np.iinfo(e).max:
+                data[c] = e(data[c])
+                break
+    float_cols = list(data.select_dtypes("float").columns)
+    for c in float_cols:
+        data[c] = np.float32(data[c])
+    
+    target = data['ptot']
+    data = data.drop('ptot', axis = 1)
+    X_train, X_test, y_train, y_test = train_test_split(data, target, test_size=0.177655, random_state=789)
+    xgb_r = xg.XGBRegressor(objective ='reg:linear',
+                  n_estimators = 10, seed = 123)
+    xgb_r.fit(X_train, y_train)
+    pred = xgb_r.predict(X_test)
+    rmse = np.sqrt(MSE(y_test, pred))
+    print("RMSE : % f" %(rmse))
+    print('RMSE/desv:', rmse/np.std(y_test))
