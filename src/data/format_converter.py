@@ -13,10 +13,10 @@ from src import DATADIR, DATARAW, ROOTDIR
  
 file = 'base_communes.csv'
 
-def transf_data(file):
+def transf_data(file, name):
     data = pd.read_csv(DATARAW/file, sep=";", encoding="utf-8", low_memory=False, dtype={'insee':str})
     data['insee'] = data['insee'].astype('str') 
-    data.to_parquet(DATADIR/'data.parquet')# meter dónde lo guardo
+    data.to_parquet(DATADIR/name +'.parquet')# meter dónde lo guardo
     #print("Je n'ai pas crashe")
 #transf_data(file)
 
